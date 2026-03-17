@@ -1,26 +1,58 @@
 @import "tailwindcss";
+@plugin "../hero.ts";
+@source "../../node_modules/@heroui/theme/dist/**/*.{js,ts,jsx,tsx}";
+@custom-variant dark (&:is(.dark *));
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@theme {
+  /* CallDraft Brand Colors */
+  --color-brand: #0EA5E9;
+  --color-brand-light: #E0F2FE;
+  --color-brand-dark: #0369A1;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --color-success: #22C55E;
+  --color-warning: #F59E0B;
+  --color-destructive: #EF4444;
+  --color-purple: #8B5CF6;
+
+  /* CallDraft UI Tokens */
+  --color-fg: #09090B;
+  --color-muted-fg: #71717A;
+  --color-border: #E4E4E7;
+  --color-panel: #FAFAFA;
+
+  /* Dark surface tokens (for call screen) */
+  --color-surface-dark: #09090B;
+  --color-surface-raised: #18181B;
+  --color-surface-overlay: #27272A;
+
+  /* Fonts */
   --font-mono: var(--font-geist-mono);
-}
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* Border Radius */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-poppins), "Poppins", sans-serif;
+  color: var(--color-fg);
+  background: #ffffff;
+}
+
+/* Avatar glow effect */
+@keyframes glow {
+  0% {
+    box-shadow: 0 0 10px rgba(14, 165, 233, 0.2), 0 0 20px rgba(14, 165, 233, 0.1);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(14, 165, 233, 0.4), 0 0 40px rgba(14, 165, 233, 0.2);
+  }
+  100% {
+    box-shadow: 0 0 10px rgba(14, 165, 233, 0.2), 0 0 20px rgba(14, 165, 233, 0.1);
+  }
+}
+
+.avatar-shimmer {
+  animation: glow 2.5s ease-in-out infinite;
 }
