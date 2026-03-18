@@ -127,7 +127,7 @@ export function detectStage(transcript: TranscriptEntry[]): ConversationStage {
 const PHONE_RE = /\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/;
 const TIME_RE = /\b\d{1,2}(?::\d{2})?\s*(?:AM|PM|a\.m\.|p\.m\.)\b/i;
 const NAME_RE =
-  /(?:(?:my name is|i'm|this is|name's|call me)\s+)([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i;
+  /(?:(?:my name is|i'm|i am|it's|this is|name's|call me|just)\s+)([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i;
 const ADDRESS_RE =
   /(?:(?:address is|live at|located at|i'm at)\s+)(.+?)(?:\.|,|$)/im;
 const ISSUE_RE =
@@ -187,6 +187,11 @@ const INTENTS: { intent: string; pattern: RegExp; confidence: number }[] = [
     intent: "farewell",
     pattern: /bye|goodbye|thank|thanks|have a good/i,
     confidence: 0.8,
+  },
+  {
+    intent: "cancellation",
+    pattern: /never mind|cancel|forget it|changed my mind|don't bother/i,
+    confidence: 0.85,
   },
   {
     intent: "greeting",

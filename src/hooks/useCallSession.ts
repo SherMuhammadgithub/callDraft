@@ -31,7 +31,7 @@ export interface UseCallSessionReturn {
 
 // ─── Hook ───────────────────────────────────────────────────────────────────
 
-export function useCallSession(): UseCallSessionReturn {
+export function useCallSession(onAutoDisconnect?: () => void): UseCallSessionReturn {
   const clientRef = useRef<RealtimeWebRTCClient | null>(null);
   const requestTimestampRef = useRef<number | null>(null);
   const latencySamplesRef = useRef<number[]>([]);
@@ -41,6 +41,16 @@ export function useCallSession(): UseCallSessionReturn {
   const voiceStateRef = useRef<VoiceState>("listening");
   const sttStartRef = useRef<number | null>(null);
   const responseCreatedAtRef = useRef<number | null>(null);
+
+  // Silence detection refs
+  const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const nudgeCountRef = useRef(0);
+  const userHasSpokenRef = useRef(false);
+  const speechCooldownRef = useRef(false);
+  const greetingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const endCallRef = useRef<() => void>(() => {});
+  const onAutoDisconnectRef = useRef(onAutoDisconnect);
 
   // Existing state
   const [isConnecting, setIsConnecting] = useState(false);
@@ -82,6 +92,13 @@ export function useCallSession(): UseCallSessionReturn {
             setTranscript((prev) => prev.filter((e) => e.id !== itemId));
           }
           return;
+        }
+
+        // Confirmed real user speech (transcription succeeded)
+        userHasSpokenRef.current = true;
+        if (greetingTimerRef.current) {
+          clearTimeout(greetingTimerRef.current);
+          greetingTimerRef.current = null;
         }
 
         // STT latency
@@ -138,6 +155,25 @@ export function useCallSession(): UseCallSessionReturn {
     clientRef.current.on("input_audio_buffer.speech_started", (event: any) => {
       const itemId = event.item_id as string | undefined;
       const agentWasSpeaking = voiceStateRef.current === "speaking";
+
+      // Ignore echo: skip if agent was speaking or in post-speech cooldown
+      if (agentWasSpeaking || speechCooldownRef.current) return;
+
+      // Clear all timers — user is talking
+      if (greetingTimerRef.current) {
+        clearTimeout(greetingTimerRef.current);
+        greetingTimerRef.current = null;
+      }
+      // Clear silence + inactivity timers — user is talking
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = null;
+      }
+      if (inactivityTimerRef.current) {
+        clearTimeout(inactivityTimerRef.current);
+        inactivityTimerRef.current = null;
+      }
+      nudgeCountRef.current = 0;
 
       setTranscript((prev) => {
         // 1. Remove agent entries still being streamed (interruption)
@@ -274,6 +310,86 @@ export function useCallSession(): UseCallSessionReturn {
 
       voiceStateRef.current = "listening";
       setVoiceState("listening");
+
+      // Cooldown: ignore speech_started for 2s after agent finishes
+      // (mic echo from agent audio can trigger false speech_started)
+      speechCooldownRef.current = true;
+      setTimeout(() => {
+        speechCooldownRef.current = false;
+      }, 2000);
+
+      // Greeting timeout — if user has never spoken, nudge after 15s
+      // then auto-disconnect 30s after that
+      if (!userHasSpokenRef.current && !greetingTimerRef.current && nudgeCountRef.current < 1) {
+        greetingTimerRef.current = setTimeout(() => {
+          if (!userHasSpokenRef.current && clientRef.current && nudgeCountRef.current < 1) {
+            nudgeCountRef.current++;
+            clientRef.current.sendEvent({
+              type: "response.create",
+              response: {
+                modalities: ["text", "audio"],
+                instructions:
+                  "The caller hasn't said anything yet. Gently say: 'Hello? Are you still there? Take your time — I'm here whenever you're ready.'",
+              },
+            });
+          }
+          greetingTimerRef.current = null;
+        }, 15000);
+      }
+
+      // Start silence timer — nudge if user stays quiet for 12s
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      if (userHasSpokenRef.current && nudgeCountRef.current < 1) {
+        silenceTimerRef.current = setTimeout(() => {
+          if (
+            voiceStateRef.current !== "speaking" &&
+            clientRef.current &&
+            nudgeCountRef.current < 1
+          ) {
+            nudgeCountRef.current++;
+            clientRef.current.sendEvent({
+              type: "response.create",
+              response: {
+                modalities: ["text", "audio"],
+                instructions:
+                  "The caller has been quiet for a while. Gently ask if they're still there or if they need more time to think.",
+              },
+            });
+          }
+          silenceTimerRef.current = null;
+        }, 12000);
+      }
+
+      // Start inactivity auto-disconnect — 30s after nudge was already sent
+      if (nudgeCountRef.current >= 1 && !inactivityTimerRef.current) {
+        inactivityTimerRef.current = setTimeout(() => {
+          if (clientRef.current) {
+            // Tell Sarah to say goodbye before disconnecting
+            clientRef.current.sendEvent({
+              type: "response.create",
+              response: {
+                modalities: ["text", "audio"],
+                instructions:
+                  "The caller has not responded. Say a brief, polite goodbye like: 'It seems like you may have stepped away. I'll go ahead and end the call. Feel free to call back anytime. Goodbye!'",
+              },
+            });
+
+            // Disconnect after giving Sarah time to say goodbye
+            setTimeout(() => {
+              endCallRef.current();
+              addToast({
+                title: "Call Disconnected",
+                description:
+                  "The call was ended due to 30 seconds of inactivity.",
+                color: "warning",
+                timeout: 8000,
+              });
+              onAutoDisconnectRef.current?.();
+            }, 5000);
+          }
+          inactivityTimerRef.current = null;
+        }, 30000);
+      }
     });
 
     // ── Errors ──────────────────────────────────────────────────────────
@@ -305,6 +421,20 @@ export function useCallSession(): UseCallSessionReturn {
       latencySamplesRef.current = [];
       sttStartRef.current = null;
       responseCreatedAtRef.current = null;
+      nudgeCountRef.current = 0;
+      userHasSpokenRef.current = false;
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = null;
+      }
+      if (inactivityTimerRef.current) {
+        clearTimeout(inactivityTimerRef.current);
+        inactivityTimerRef.current = null;
+      }
+      if (greetingTimerRef.current) {
+        clearTimeout(greetingTimerRef.current);
+        greetingTimerRef.current = null;
+      }
 
       const tokenResponse = await fetch("/api/session");
       if (!tokenResponse.ok) {
@@ -380,12 +510,31 @@ export function useCallSession(): UseCallSessionReturn {
     }
 
     requestTimestampRef.current = null;
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    if (inactivityTimerRef.current) {
+      clearTimeout(inactivityTimerRef.current);
+      inactivityTimerRef.current = null;
+    }
+    if (greetingTimerRef.current) {
+      clearTimeout(greetingTimerRef.current);
+      greetingTimerRef.current = null;
+    }
+    nudgeCountRef.current = 0;
+    userHasSpokenRef.current = false;
+    speechCooldownRef.current = false;
     setIsConnected(false);
     setIsMuted(false);
     setVoiceState("listening");
     // Remove unresolved "Listening..." placeholders
     setTranscript((prev) => prev.filter((e) => e.text !== "..."));
   }, []);
+
+  // Keep refs in sync so timers can call without stale closure
+  endCallRef.current = endCall;
+  onAutoDisconnectRef.current = onAutoDisconnect;
 
   // ─── Toggle Mute ───────────────────────────────────────────────────────
 
@@ -405,6 +554,15 @@ export function useCallSession(): UseCallSessionReturn {
       clientRef.current?.disconnect();
       if (durationIntervalRef.current) {
         clearInterval(durationIntervalRef.current);
+      }
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+      }
+      if (inactivityTimerRef.current) {
+        clearTimeout(inactivityTimerRef.current);
+      }
+      if (greetingTimerRef.current) {
+        clearTimeout(greetingTimerRef.current);
       }
     };
   }, []);

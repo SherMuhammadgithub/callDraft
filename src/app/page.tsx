@@ -14,7 +14,7 @@ export type CallStatus = "idle" | "connecting" | "active" | "ended";
 // ─── Main Page ───────────────────────────────────────────────────────────────
 export default function Home() {
   const [callStatus, setCallStatus] = useState<CallStatus>("idle");
-  const callSession = useCallSession();
+  const callSession = useCallSession(() => setCallStatus("ended"));
 
   /**
    * Handle start call

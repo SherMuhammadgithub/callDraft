@@ -28,22 +28,29 @@ export function StageTracker({
           <div key={stage.key} className="flex items-center gap-1.5">
             {i > 0 && (
               <div
-                className={`h-px w-3 ${
-                  isCompleted ? "bg-brand" : "bg-surface-overlay"
+                className={`h-px w-4 ${
+                  isCompleted ? "bg-success" : "bg-border/20"
                 } transition-colors duration-300`}
               />
             )}
             <Chip
               size="sm"
-              variant={isActive ? "solid" : "flat"}
-              color={
-                isCompleted ? "success" : isActive ? "primary" : "default"
-              }
+              variant="flat"
               classNames={{
                 base: `${
-                  !isActive && !isCompleted ? "opacity-40" : ""
+                  isActive
+                    ? "bg-brand text-white"
+                    : isCompleted
+                      ? "bg-success/15"
+                      : "bg-surface-overlay/60"
                 } transition-all duration-300`,
-                content: "text-[10px] font-semibold tracking-wide",
+                content: `text-[10px] font-semibold tracking-wide ${
+                  isActive
+                    ? "text-white"
+                    : isCompleted
+                      ? "text-success"
+                      : "text-muted-fg"
+                }`,
               }}
             >
               {stage.label}

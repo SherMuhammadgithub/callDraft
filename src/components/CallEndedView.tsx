@@ -189,7 +189,7 @@ export function CallEndedView({
 
       {/* ═══ RIGHT — Transcript review ═══ */}
       {transcript.length > 0 && (
-        <div className="hidden md:flex w-[400px] shrink-0 border-l border-border bg-white flex-col min-h-0">
+        <div className="hidden md:flex w-[400px] shrink-0 border-l border-border bg-white flex-col h-screen">
           {/* Header */}
           <div className="px-5 pt-5 pb-4 shrink-0">
             <h2 className="text-sm font-semibold text-fg">Call Transcript</h2>

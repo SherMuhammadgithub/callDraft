@@ -22,9 +22,9 @@ export function CallControls({
   onEndCall,
 }: CallControlsProps) {
   const controlBase =
-    "w-12 h-12 rounded-full transition-all duration-200";
+    "w-12 h-12 rounded-full transition-all duration-200 border border-border/10";
   const controlIdle =
-    "bg-surface-overlay text-white hover:bg-surface-overlay/80";
+    "bg-surface-overlay/80 text-white hover:bg-surface-overlay";
 
   return (
     <div className="flex items-center gap-4">

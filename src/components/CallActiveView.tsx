@@ -243,8 +243,8 @@ export function CallActiveView({
               <ListeningIndicator />
             ) : null}
 
-            {/* Controls */}
-            <div className="mt-4">
+            {/* Controls + Debug panel */}
+            <div className="mt-4 relative">
               <CallControls
                 isMuted={isMuted}
                 isTranscriptOpen={isTranscriptOpen}
@@ -256,18 +256,20 @@ export function CallActiveView({
                 onToggleDebug={() => setIsDebugOpen(!isDebugOpen)}
                 onEndCall={onEndCall}
               />
-            </div>
 
-            {/* Debug panel */}
-            <AnimatePresence>
-              {isDebugOpen && (
-                <DebugPanel
-                  stage={stage}
-                  intent={intent}
-                  entities={entities}
-                />
-              )}
-            </AnimatePresence>
+              {/* Debug panel — anchored to the right of controls */}
+              <AnimatePresence>
+                {isDebugOpen && (
+                  <div className="absolute left-full top-1/2 -translate-y-1/2 ml-4 z-10">
+                    <DebugPanel
+                      stage={stage}
+                      intent={intent}
+                      entities={entities}
+                    />
+                  </div>
+                )}
+              </AnimatePresence>
+            </div>
           </div>
         </div>
       </div>
@@ -280,7 +282,7 @@ export function CallActiveView({
             animate={{ width: 380, opacity: 1 }}
             exit={{ width: 0, opacity: 0 }}
             transition={{ duration: 0.25, ease: "easeInOut" }}
-            className="hidden md:flex shrink-0 overflow-hidden border-l border-border bg-white flex-col"
+            className="hidden md:flex shrink-0 overflow-hidden border-l border-border bg-white flex-col h-screen"
           >
             <div className="w-[380px] h-full flex flex-col">
               <div className="flex-1 min-h-0">

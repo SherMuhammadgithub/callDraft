@@ -11,11 +11,14 @@ type TranscriptPanelProps = {
 };
 
 export function TranscriptPanel({ transcript, onClose }: TranscriptPanelProps) {
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      const el = scrollContainerRef.current;
+      if (el) {
+        el.scrollTop = el.scrollHeight;
+      }
     }, 50);
     return () => clearTimeout(timer);
   }, [transcript]);
@@ -69,7 +72,7 @@ export function TranscriptPanel({ transcript, onClose }: TranscriptPanelProps) {
       </div>
 
       {/* Transcript messages */}
-      <ScrollShadow className="flex-1 overflow-y-auto px-5 pb-4">
+      <ScrollShadow ref={scrollContainerRef} className="flex-1 overflow-y-auto px-5 pb-4">
         {transcript.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-3 py-12">
             <div className="w-12 h-12 rounded-lg bg-panel flex items-center justify-center border border-border">
@@ -96,7 +99,6 @@ export function TranscriptPanel({ transcript, onClose }: TranscriptPanelProps) {
             {transcript.map((entry) => (
               <TranscriptBubble key={entry.id} entry={entry} />
             ))}
-            <div ref={bottomRef} />
           </div>
         )}
       </ScrollShadow>
