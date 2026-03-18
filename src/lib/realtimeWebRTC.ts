@@ -78,7 +78,7 @@ export class RealtimeWebRTCClient {
     await this.pc.setLocalDescription(offer);
 
     const res = await fetch(
-      "https://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17",
+      "https://api.openai.com/v1/realtime?model=gpt-realtime-mini",
       {
         method: "POST",
         headers: {
