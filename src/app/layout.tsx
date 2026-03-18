@@ -1,3 +1,5 @@
+// Root layout — loads fonts, sets metadata, and wraps everything in providers.
+// Poppins is the primary UI font; Geist Mono is used for latency/debug readouts.
 import type { Metadata } from "next";
 import { Poppins, Geist_Mono } from "next/font/google";
 import { Providers } from "./providers";
@@ -26,6 +28,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      {/* CSS variables for fonts are set on <body> so Tailwind can reference them */}
       <body
         className={`${poppins.variable} ${geistMono.variable} antialiased`}
       >

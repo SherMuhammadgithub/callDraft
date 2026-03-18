@@ -1,3 +1,5 @@
+// Scrollable transcript panel that shows the live conversation.
+// Auto-scrolls to the bottom as new messages arrive.
 "use client";
 
 import { useRef, useEffect } from "react";
@@ -13,6 +15,8 @@ type TranscriptPanelProps = {
 export function TranscriptPanel({ transcript, onClose }: TranscriptPanelProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
+  // Auto-scroll to bottom when transcript updates. The 50ms delay lets the
+  // DOM render the new content before we measure scrollHeight.
   useEffect(() => {
     const timer = setTimeout(() => {
       const el = scrollContainerRef.current;

@@ -1,5 +1,10 @@
+/*
+ * Global styles — Tailwind v4 config, design tokens, and custom animations.
+ * All color tokens defined here are usable as Tailwind classes (e.g. bg-brand, text-fg).
+ */
 @import "tailwindcss";
 @plugin "../hero.ts";
+/* Pull in HeroUI's compiled theme so its components get styled properly */
 @source "../../node_modules/@heroui/theme/dist/**/*.{js,ts,jsx,tsx}";
 @custom-variant dark (&:is(.dark *));
 
@@ -20,7 +25,7 @@
   --color-border: #E4E4E7;
   --color-panel: #FAFAFA;
 
-  /* Dark surface tokens (for call screen) */
+  /* Dark surface tokens — used on the active call screen's dark background */
   --color-surface-dark: #09090B;
   --color-surface-raised: #18181B;
   --color-surface-overlay: #27272A;
@@ -40,7 +45,7 @@ body {
   background: #ffffff;
 }
 
-/* Avatar glow effect */
+/* Pulsing glow around Sarah's avatar — gives a "live" feel during calls */
 @keyframes glow {
   0% {
     box-shadow: 0 0 10px rgba(14, 165, 233, 0.2), 0 0 20px rgba(14, 165, 233, 0.1);

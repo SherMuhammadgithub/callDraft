@@ -1,4 +1,7 @@
-// Pure functions for conversation analysis — no dependencies, no side effects
+// Pure functions for conversation analysis — no dependencies, no side effects.
+// Analyzes the transcript to detect what stage the call is at, extract
+// entities (name, phone, etc.), and classify the caller's intent.
+// Used by the debug panel and stage tracker during active calls.
 
 import type { TranscriptEntry } from "@/components/TranscriptBubble";
 
@@ -23,9 +26,10 @@ export type DetectedIntent = {
 };
 
 // ─── Stage Detection ────────────────────────────────────────────────────────
-// Requires MULTIPLE keyword hits or user-role context to advance stages.
-// This prevents Sarah's intro (which mentions "book an appointment") from
-// immediately jumping to the booking stage.
+// Rules are ordered from most-advanced to least-advanced stage. We check from
+// the top and return the first match. This matters because we need to
+// distinguish between Sarah mentioning "appointment" in her intro vs. the
+// user actually requesting one — hence the user-role checks in booking/confirmation.
 
 const STAGE_RULES: {
   stage: ConversationStage;
@@ -114,7 +118,7 @@ const STAGE_RULES: {
 export function detectStage(transcript: TranscriptEntry[]): ConversationStage {
   if (transcript.length === 0) return "greeting";
 
-  // Check from most advanced stage downward — first match wins
+  // First matching rule wins (most advanced stage checked first)
   for (const { stage, test } of STAGE_RULES) {
     if (test(transcript)) return stage;
   }
@@ -123,6 +127,8 @@ export function detectStage(transcript: TranscriptEntry[]): ConversationStage {
 }
 
 // ─── Entity Extraction ──────────────────────────────────────────────────────
+// Regex-based extraction of key booking details from the conversation.
+// We look for names, phone numbers, addresses, times, and HVAC issues.
 
 const PHONE_RE = /\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/;
 const TIME_RE = /\b\d{1,2}(?::\d{2})?\s*(?:AM|PM|a\.m\.|p\.m\.)\b/i;
@@ -133,7 +139,8 @@ const ADDRESS_RE =
 const ISSUE_RE =
   /(?:(?:my|the|our)\s+)?(?:ac|air\s*condition(?:er|ing)?|heat(?:er|ing)?|furnace|duct|hvac|unit)\s+(?:is\s+)?(?:not\s+working|broken|leaking|making\s+noise|won't\s+(?:turn|start)|stopped)|(?:need|want)\s+(?:a\s+)?(?:repair|maintenance|installation|duct\s+cleaning|service)/i;
 
-// Returns the LAST match of a regex in a string (most recent info wins)
+// We want the LAST match because if the caller corrects themselves
+// (e.g. "actually my number is..."), we should use the updated info
 function lastMatch(text: string, re: RegExp, group = 0): string | null {
   const globalRe = new RegExp(re.source, re.flags.includes("g") ? re.flags : re.flags + "g");
   const matches = [...text.matchAll(globalRe)];
@@ -143,6 +150,8 @@ function lastMatch(text: string, re: RegExp, group = 0): string | null {
 export function extractEntities(
   transcript: TranscriptEntry[],
 ): ExtractedEntities {
+  // Prefer entities from user messages, fall back to agent messages
+  // (agent sometimes reads back the phone number or confirms the name)
   const userText = transcript
     .filter((e) => e.role === "user")
     .map((e) => e.text)
@@ -161,6 +170,8 @@ export function extractEntities(
 }
 
 // ─── Intent Detection ───────────────────────────────────────────────────────
+// Classifies the caller's most recent intent based on the last 4 messages.
+// Ordered by priority — "emergency" should always win over "booking".
 
 const INTENTS: { intent: string; pattern: RegExp; confidence: number }[] = [
   {
@@ -208,6 +219,7 @@ const INTENTS: { intent: string; pattern: RegExp; confidence: number }[] = [
 export function detectIntent(transcript: TranscriptEntry[]): DetectedIntent {
   if (transcript.length === 0) return { intent: "none", confidence: 0 };
 
+  // Only look at the last 4 messages — intent can shift during a conversation
   const recent = transcript.slice(-4).map((e) => e.text).join(" ");
 
   for (const { intent, pattern, confidence } of INTENTS) {

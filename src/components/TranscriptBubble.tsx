@@ -1,3 +1,6 @@
+// Individual transcript message bubble + text formatting utilities.
+// Renders user messages and agent messages with different styling,
+// and highlights detected entities (phone numbers, times) inline.
 "use client";
 
 import Image from "next/image";
@@ -11,12 +14,14 @@ export type TranscriptEntry = {
 };
 
 // ─── Entity Highlighting ────────────────────────────────────────────────────
-// Uses lightweight <span> tags instead of Chip (which renders <div> and
-// causes hydration errors inside <p>/<span> parents).
+// We use inline <span> tags instead of HeroUI's Chip component here because
+// Chip renders a <div>, which causes React hydration errors when nested
+// inside <p> or <span> parents.
 
 const PHONE_RE = /\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/;
 const TIME_RE = /\b\d{1,2}(?::\d{2})?\s*(?:AM|PM|a\.m\.|p\.m\.)\b/i;
 
+// Split text on phone numbers and times, then wrap matches in colored badges
 function highlightEntities(text: string): React.ReactNode[] {
   const combined = new RegExp(
     `(${PHONE_RE.source}|${TIME_RE.source})`,
@@ -24,6 +29,7 @@ function highlightEntities(text: string): React.ReactNode[] {
   );
   const parts = text.split(combined).filter(Boolean);
 
+  // No entities found — return plain text
   if (parts.length === 1) return [text];
 
   return parts.map((part, i) => {
@@ -52,9 +58,11 @@ function highlightEntities(text: string): React.ReactNode[] {
 }
 
 // ─── List + Text Formatting ─────────────────────────────────────────────────
+// Handles markdown-ish lists (bullet and numbered) that the agent sometimes
+// produces, plus the "..." placeholder shown while Whisper transcribes.
 
 function FormattedText({ text }: { text: string }) {
-  // Placeholder while Whisper is processing
+  // "..." is the placeholder inserted by speech_started before transcription completes
   if (text === "...") {
     return (
       <span className="text-sm text-muted-fg/60 italic select-none">

@@ -1,3 +1,6 @@
+// Active call screen — the main view while a call is in progress.
+// Split layout: dark call area (center) with avatar + controls,
+// and a slide-out transcript panel on the right (desktop) or bottom (mobile).
 "use client";
 
 import { useState, useMemo } from "react";
@@ -28,7 +31,9 @@ type CallActiveViewProps = {
   onEndCall: () => void;
 };
 
-// / ─── Waveform Animation ─────────────────────────────────────────────────────
+// ─── Waveform Animation ─────────────────────────────────────────────────────
+// Animated bars that play when the agent is speaking. Each bar's height
+// oscillates at a slightly offset delay to create a natural wave effect.
 
 function WaveformBars() {
   const bars = [3, 5, 7, 4, 8, 6, 3, 5, 7, 4, 8, 6, 3, 5, 7];
@@ -54,6 +59,7 @@ function WaveformBars() {
 }
 
 // ─── Listening Indicator ────────────────────────────────────────────────────
+// Subtle pulsing mic icon shown when the agent is waiting for the user to speak
 
 function ListeningIndicator() {
   return (
@@ -95,17 +101,18 @@ export function CallActiveView({
   const [isTranscriptOpen, setIsTranscriptOpen] = useState(true);
   const [isDebugOpen, setIsDebugOpen] = useState(false);
 
-  // Conversation analysis (recomputed when transcript changes)
+  // Derive conversation analysis from transcript — memoized since these
+  // involve regex scanning across all messages
   const stage = useMemo(() => detectStage(transcript), [transcript]);
   const entities = useMemo(() => extractEntities(transcript), [transcript]);
   const intent = useMemo(() => detectIntent(transcript), [transcript]);
 
-  // ToolCallCard is intentionally NOT auto-shown based on keyword detection.
-  // It should only appear when real function-calling events arrive from
-  // the Realtime API (future enhancement). Kept here for reference.
+  // ToolCallCard is a placeholder for future function-calling integration.
+  // Currently hardcoded to false — it should only show when the Realtime API
+  // fires an actual tool-call event (not based on keyword matching).
   const showToolCall = false;
 
-  // Voice state display config
+  // Map voice state to visual config (dot color + label text)
   const voiceConfig = {
     listening: { color: "bg-success", textColor: "text-success", label: "Listening..." },
     speaking: { color: "bg-brand", textColor: "text-brand", label: "Agent is speaking..." },
@@ -124,6 +131,7 @@ export function CallActiveView({
       <div className="flex-1 flex flex-col bg-surface-dark">
         {/* Top bar — latency + live badge */}
         <div className="flex items-center justify-between px-6 py-4">
+          {/* Latency chip: green < 800ms, yellow < 1500ms, red above */}
           <div className="flex items-center gap-2 flex-wrap">
             <Chip
               size="sm"

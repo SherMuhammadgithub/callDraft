@@ -1,23 +1,28 @@
-// lib/realtimeWebRTC.ts
+// WebRTC transport layer for OpenAI's Realtime API.
+// Handles the full connection lifecycle: mic capture, SDP handshake, data
+// channel for events, and an invisible <audio> element for agent playback.
+// This is a thin wrapper — all business logic lives in useCallSession.
 
 export class RealtimeWebRTCClient {
   private pc: RTCPeerConnection | null = null;
-  private dc: RTCDataChannel | null = null;
-  private audioEl: HTMLAudioElement | null = null;
+  private dc: RTCDataChannel | null = null; // data channel for JSON events (not audio)
+  private audioEl: HTMLAudioElement | null = null; // hidden element that plays agent audio
   private micStream: MediaStream | null = null;
   private eventCallbacks: Map<string, ((e: any) => void)[]> = new Map();
 
   async connect(ephemeralToken: string): Promise<void> {
     this.pc = new RTCPeerConnection();
 
-    // Agent audio — browser handles playback automatically
+    // When OpenAI sends back audio, pipe it to a hidden <audio> element.
+    // autoplay is critical — without it, the agent would be silently mouthing words.
     this.audioEl = document.createElement("audio");
     this.audioEl.autoplay = true;
     this.pc.ontrack = (e) => {
       this.audioEl!.srcObject = e.streams[0];
     };
 
-    // Mic — browser handles capture automatically
+    // Grab the user's mic with echo cancellation + noise suppression enabled.
+    // 24kHz sample rate matches what the Realtime API expects.
     this.micStream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
@@ -28,7 +33,8 @@ export class RealtimeWebRTCClient {
     });
     this.pc.addTrack(this.micStream.getTracks()[0]);
 
-    // Data channel for sending/receiving events
+    // The data channel carries all non-audio events (transcript deltas,
+    // session config, response lifecycle events, etc.) as JSON messages
     this.dc = this.pc.createDataChannel("oai-events");
 
     this.dc.onopen = () => {
@@ -39,13 +45,15 @@ export class RealtimeWebRTCClient {
       try {
         const event = JSON.parse(e.data);
 
-        // Auto-configure on session.created
+        // As soon as the session is created, send our config (system prompt, voice, etc.)
         if (event.type === "session.created") {
           this.configureSession();
         }
 
         this.emit(event.type, event);
 
+        // Don't log high-frequency streaming events (audio + transcript deltas)
+        // to keep the console readable
         if (
           event.type !== "response.audio.delta" &&
           event.type !== "response.audio_transcript.delta"
@@ -73,7 +81,8 @@ export class RealtimeWebRTCClient {
       }
     };
 
-    // SDP handshake with OpenAI
+    // Standard WebRTC SDP offer/answer handshake, but the "signaling server"
+    // is OpenAI's REST endpoint. We POST our SDP offer and get their answer back.
     const offer = await this.pc.createOffer();
     await this.pc.setLocalDescription(offer);
 
@@ -98,6 +107,8 @@ export class RealtimeWebRTCClient {
     await this.pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
   }
 
+  // Send the session configuration (system prompt, voice, VAD settings).
+  // This fires automatically when we receive session.created.
   private configureSession(): void {
     this.sendEvent({
       type: "session.update",
@@ -142,17 +153,18 @@ Identity:
 
 Important: Keep responses short and conversational (2-3 sentences max). This is a phone call, not an essay. Be friendly and empathetic.`,
         voice: "sage",
-        input_audio_transcription: { model: "whisper-1" },
+        input_audio_transcription: { model: "whisper-1" }, // enables text transcripts of user speech
         turn_detection: {
-          type: "server_vad",
-          threshold: 0.8,
-          prefix_padding_ms: 400,
-          silence_duration_ms: 800,
+          type: "server_vad", // server-side voice activity detection
+          threshold: 0.8, // fairly high to avoid triggering on background noise
+          prefix_padding_ms: 400, // capture 400ms before detected speech start
+          silence_duration_ms: 800, // 800ms of silence = user is done talking
         },
       },
     });
   }
 
+  // Kick off Sarah's opening greeting so the user hears something right away
   triggerGreeting(): void {
     this.sendEvent({
       type: "response.create",
@@ -164,6 +176,7 @@ Important: Keep responses short and conversational (2-3 sentences max). This is 
     });
   }
 
+  // Send a JSON event to OpenAI via the data channel
   sendEvent(event: object): void {
     if (this.dc?.readyState === "open") {
       this.dc.send(JSON.stringify(event));
@@ -172,10 +185,12 @@ Important: Keep responses short and conversational (2-3 sentences max). This is 
     }
   }
 
+  // Expose the mic track so useCallSession can toggle enabled for mute
   getMicTrack(): MediaStreamTrack | null {
     return this.micStream?.getTracks()[0] ?? null;
   }
 
+  // Simple pub/sub — multiple listeners per event type
   on(type: string, cb: (e: any) => void): void {
     if (!this.eventCallbacks.has(type)) {
       this.eventCallbacks.set(type, []);
@@ -193,6 +208,8 @@ Important: Keep responses short and conversational (2-3 sentences max). This is 
     });
   }
 
+  // Tear down everything: stop mic, close data channel + peer connection,
+  // and release the audio element
   disconnect(): void {
     this.micStream?.getTracks().forEach((t) => t.stop());
     this.dc?.close();

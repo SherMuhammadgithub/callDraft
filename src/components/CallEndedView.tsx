@@ -1,3 +1,5 @@
+// Post-call summary screen — shows call stats (duration, message count,
+// latency) on the left and the full transcript on the right for review.
 "use client";
 
 import Image from "next/image";
@@ -19,6 +21,7 @@ type CallEndedViewProps = {
   onNewCall: () => void;
 };
 
+// Reusable stat row used for duration, messages, and latency
 function StatCard({
   value,
   label,
@@ -145,7 +148,7 @@ export function CallEndedView({
             />
           </div>
 
-          {/* Quality indicator */}
+          {/* Quality badge — same thresholds as the live latency chip */}
           <div className="flex items-center justify-center">
             <Chip
               size="sm"

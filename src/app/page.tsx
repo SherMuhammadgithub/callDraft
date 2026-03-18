@@ -1,3 +1,5 @@
+// Main page — state machine that drives the call lifecycle UI.
+// Each call status maps to a different full-screen view component.
 "use client";
 
 import { useState } from "react";
@@ -14,35 +16,29 @@ export type CallStatus = "idle" | "connecting" | "active" | "ended";
 // ─── Main Page ───────────────────────────────────────────────────────────────
 export default function Home() {
   const [callStatus, setCallStatus] = useState<CallStatus>("idle");
+
+  // The callback fires when the call auto-disconnects (e.g. inactivity timeout)
   const callSession = useCallSession(() => setCallStatus("ended"));
 
-  /**
-   * Handle start call
-   * Transition: idle → connecting → active
-   */
+  // Transition: idle → connecting → active
   const handleStartCall = async () => {
     setCallStatus("connecting");
     await callSession.startCall();
     setCallStatus("active");
   };
 
-  /**
-   * Handle end call
-   * Transition: active → ended
-   */
+  // Transition: active → ended
   const handleEndCall = () => {
     callSession.endCall();
     setCallStatus("ended");
   };
 
-  /**
-   * Handle new call (from ended state)
-   * Transition: ended → idle
-   */
+  // Transition: ended → idle (reset for another call)
   const handleNewCall = () => {
     setCallStatus("idle");
   };
 
+  // AnimatePresence mode="wait" ensures one view exits before the next enters
   return (
     <AnimatePresence mode="wait">
       {callStatus === "idle" && (

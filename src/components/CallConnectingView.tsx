@@ -1,3 +1,5 @@
+// Brief loading screen shown while we fetch the ephemeral token and
+// establish the WebRTC connection. Shows Sarah's avatar with pulsing rings.
 "use client";
 
 import Image from "next/image";

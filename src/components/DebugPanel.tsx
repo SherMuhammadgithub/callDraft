@@ -1,3 +1,6 @@
+// Debug overlay — shows conversation stage, detected intent, and extracted
+// entities in real time. Toggled from the call controls during an active call.
+// Useful for understanding what the conversation analyzer is picking up.
 "use client";
 
 import { Card, CardBody, Chip, Divider, Progress } from "@heroui/react";
@@ -23,6 +26,7 @@ type DebugPanelProps = {
 };
 
 export function DebugPanel({ stage, intent, entities }: DebugPanelProps) {
+  // Only show entities that have actually been detected (non-null)
   const entityList = Object.entries(entities).filter(
     ([, v]) => v !== null,
   ) as [string, string][];

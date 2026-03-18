@@ -1,3 +1,6 @@
+// Landing screen — shown before a call starts. Displays the business info,
+// Sarah's avatar, and the big green call button. This is the first thing
+// users see when they open the app.
 "use client";
 
 import Image from "next/image";
@@ -8,7 +11,7 @@ type CallIdleViewProps = {
   onStartCall: () => void;
 };
 
-// Feature pills for the top section
+// Quick-glance business details shown as colored pills
 const features = [
   { icon: "clock", label: "Mon–Fri 8AM–6PM" },
   { icon: "tool", label: "AC & Heating" },
@@ -16,6 +19,7 @@ const features = [
   { icon: "dollar", label: "$89 Service Call" },
 ];
 
+// Maps icon names to inline SVG paths — avoids importing an icon library
 function FeatureIcon({ icon }: { icon: string }) {
   const paths: Record<string, React.ReactNode> = {
     clock: (

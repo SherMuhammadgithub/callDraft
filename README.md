@@ -1,305 +1,116 @@
-# CallDraft — AI Voice Agent for HVAC Businesses
+# CallDraft
 
-A real-time voice agent prototype that allows users to have a live voice conversation with an AI receptionist named "Sarah" from Anderson Heating & Cooling.
+A real-time AI voice agent prototype for HVAC businesses. CallDraft lets users have a live voice conversation with "Sarah," an AI-powered virtual receptionist for Anderson Heating & Cooling (Dallas, TX). The entire call happens in the browser -- no phone line or backend WebSocket server required.
 
-## Features
+## What the AI Agent Does
 
-✅ **Real-time Two-Way Voice Communication**
-- User speaks → AI listens and responds naturally
-- Live transcript showing both sides of the conversation
-- Response latency indicator (in milliseconds)
-- Call duration tracking
+Sarah handles inbound calls for a fictional HVAC company. During a conversation she will:
 
-✅ **AI Agent Capabilities**
-- Professional greeting and introduction
-- Answers questions about services, hours, and pricing
-- Collects customer information (name, phone, address)
-- Describes HVAC issues and books appointments
-- Natural, conversational responses
+- Greet callers and ask how she can help
+- Answer questions about services (AC repair, heating repair, installation, maintenance, duct cleaning), business hours (Mon--Fri 8 AM--6 PM, 24/7 emergency), and pricing ($89 service call fee)
+- Collect the caller's name, phone number, and service address
+- Walk through booking an appointment (no real booking occurs)
+- Politely decline off-topic questions and stay focused on HVAC services
 
-✅ **Tech Stack**
-- **Framework**: Next.js 15+ (App Router) with TypeScript
-- **Styling**: Tailwind CSS v4 + HeroUI component library
-- **Voice API**: OpenAI Realtime API (speech-to-speech via WebSocket)
-- **Audio**: Web Audio API + MediaRecorder
-- **Deployment**: Vercel-ready
+Conversations are fully speech-to-speech. A live transcript, call timer, and response-latency indicator are displayed alongside the call.
 
-## Quick Start
+## Prerequisites
 
-### 1. Clone and Install
+- **Node.js** 18 or later
+- An **OpenAI API key** with access to the Realtime API (`gpt-realtime-mini`)
 
-```bash
-git clone <repo-url>
-cd calldraft
-npm install
-```
+## Setup
 
-### 2. Set Up API Key
+1. **Clone the repository**
 
-Create `.env.local` in the project root:
+   ```bash
+   git clone <repo-url>
+   cd calldraft
+   ```
 
-```bash
-cp .env.example .env.local
-```
+2. **Install dependencies**
 
-Then update `.env.local` with your OpenAI API key:
+   ```bash
+   npm install
+   ```
 
-```env
-OPENAI_API_KEY=sk-your-actual-api-key-here
-```
+3. **Configure environment variables**
 
-**Important**: You need OpenAI API access with the Realtime API preview enabled.
-- Get your key: https://platform.openai.com/api-keys
-- Ensure your account has Realtime API preview access
+   Copy the example file and add your key:
 
-### 3. Run Development Server
+   ```bash
+   cp .env.example .env.local
+   ```
 
-```bash
-npm run dev
-```
+   Open `.env.local` and replace the placeholder with your real key:
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+   ```
+   OPENAI_API_KEY=sk-your-key-here
+   ```
+
+   The key must have Realtime API access enabled. You can manage keys at https://platform.openai.com/api-keys.
+
+4. **Start the development server**
+
+   ```bash
+   npm run dev
+   ```
+
+   Open [http://localhost:3000](http://localhost:3000) in your browser. Click "Start Call," grant microphone access, and begin talking.
+
+## Tech Stack
+
+| Layer | Choice | Why |
+|---|---|---|
+| Framework | Next.js (App Router) | Server-side API route keeps the OpenAI key hidden; static frontend deploys to Vercel with zero config |
+| Language | TypeScript | Catches type errors at build time across event handlers and WebRTC payloads |
+| Styling | Tailwind CSS v4 + HeroUI | Utility-first CSS for rapid prototyping; HeroUI provides accessible components out of the box |
+| Voice | OpenAI Realtime API (WebRTC) | Direct browser-to-OpenAI audio stream -- no backend WebSocket server needed, reducing latency and infrastructure |
+| AI Model | gpt-realtime-mini | Cheapest Realtime model; fast enough for scripted receptionist flows with low per-minute cost |
+| Deployment | Vercel | One-click deploy, automatic HTTPS, serverless API routes -- matches the Next.js ecosystem |
 
 ## How It Works
 
-### Architecture
-
-```
-Browser (Frontend)
-    ↓
-    → /api/session (Next.js API Route)
-        ↓
-        → OpenAI API (creates ephemeral token)
-            ↓
-            ↓ token returned
-            ↓
-    ← WebSocket connected to OpenAI Realtime API
-        ↓
-    Two-way audio streaming + real-time transcription
-```
-
-### Call Flow
-
-1. **User clicks "Start Call"**
-   - Frontend requests ephemeral token from `/api/session`
-   - Requests microphone permission (getUserMedia)
-
-2. **WebSocket Connection**
-   - Connects directly to OpenAI Realtime API
-   - Sends system prompt, voice config, and transcription settings
-
-3. **Real-time Communication**
-   - User speaks → audio sent to OpenAI
-   - OpenAI processes and responds
-   - Transcript updated in real-time
-   - Agent audio played through speakers
-
-4. **Call Ends**
-   - Summary shows transcript and performance metrics
-   - Option to start new call
-
-## Project Structure
-
-```
-calldraft/
-├── src/
-│   ├── lib/
-│   │   ├── audioProcessor.ts      # Audio I/O (mic capture, speaker playback)
-│   │   └── realtimeClient.ts      # WebSocket connection handler
-│   ├── hooks/
-│   │   ├── useAudio.ts            # Audio management hook
-│   │   └── useCallSession.ts      # Complete call session hook
-│   ├── components/
-│   │   ├── CallIdleView.tsx       # Landing screen
-│   │   ├── CallConnectingView.tsx # Loading state
-│   │   ├── CallActiveView.tsx     # Live call UI
-│   │   ├── CallEndedView.tsx      # Call summary
-│   │   ├── TranscriptPanel.tsx    # Scrollable transcript
-│   │   ├── TranscriptBubble.tsx   # Message bubbles
-│   │   └── CallControls.tsx       # Mute, end, etc.
-│   └── app/
-│       ├── api/session/route.ts   # Ephemeral token endpoint
-│       ├── page.tsx               # Main page (state management)
-│       └── layout.tsx             # Root layout
-├── public/
-│   └── sarah.png                  # Robot avatar image
-├── .env.example                   # Environment variable template
-├── .env.local                     # Your actual API key (git-ignored)
-└── package.json
-```
-
-## Key Components
-
-### `useCallSession()` Hook
-
-Main hook for managing the entire call experience:
-
-```typescript
-const {
-  isConnecting,      // boolean: connection in progress
-  isConnected,       // boolean: WebSocket connected
-  transcript,        // TranscriptEntry[]: real-time conversation
-  latency,           // number: response time in ms
-  callDuration,      // string: MM:SS format
-  error,             // string | null: error message
-  startCall,         // async () => void: initiate call
-  endCall,           // () => void: disconnect
-  toggleMute,        // () => void: mute/unmute mic
-  isMuted,           // boolean: current mute state
-} = useCallSession();
-```
-
-### `useAudio()` Hook
-
-Lower-level audio management:
-
-```typescript
-const {
-  isReady,           // boolean: microphone initialized
-  isMuted,           // boolean: mute status
-  error,             // string | null: audio error
-  initAudio,         // async () => void: request mic permission
-  startRecording,    // (callback) => void: start capturing
-  stopRecording,     // () => void: stop capturing
-  toggleMute,        // () => void: pause/resume mic
-  playAudio,         // (buffer) => Promise: play speaker audio
-  cleanup,           // () => void: clean up resources
-} = useAudio();
-```
-
-## Environment Variables
-
-Create `.env.local`:
-
-```env
-# OpenAI API Key (required for voice features)
-# Get from: https://platform.openai.com/api-keys
-OPENAI_API_KEY=sk-your-key-here
-```
-
-## Error Handling
-
-The app gracefully handles:
-- ✅ Missing/invalid API key
-- ✅ Microphone permission denied
-- ✅ WebSocket connection failures
-- ✅ Audio playback errors
-- ✅ Network issues
-
-Errors are displayed to users with helpful messages.
-
-## Testing Without Real API Key
-
-During development, you can test the UI without OpenAI:
-
-1. Set `OPENAI_API_KEY=sk-placeholder` in `.env.local`
-2. The app will show connection errors but UI remains functional
-3. When you add a real key, it works instantly
-
-## Customization
-
-### Change Sarah's Personality
-
-Edit the system prompt in `src/lib/realtimeClient.ts`:
-
-```typescript
-instructions: `You are Sarah, a virtual receptionist...
-// Customize here
-```
-
-### Change Voice
-
-In the same file:
-
-```typescript
-voice: "sarah",  // Change to: alloy, echo, fable, onyx, nova, shimmer
-```
-
-### Adjust Response Latency Thresholds
-
-In `src/components/CallActiveView.tsx`:
-
-```typescript
-color={
-  latency < 800      // Good: under 800ms (green)
-    ? "success"
-    : latency < 1500 // Fair: under 1.5s (yellow)
-      ? "warning"
-      : "danger"     // Slow: over 1.5s (red)
-}
-```
-
-## Performance Tips
-
-1. **Reduce Background Noise**: Use `echoCancellation` and `noiseSuppression` (enabled by default)
-2. **Network**: Connection quality affects latency
-3. **Browser**: Use latest Chrome/Firefox for best WebRTC support
-4. **Server**: Deploy to Vercel for lowest latency to OpenAI
-
-## Troubleshooting
-
-### "Microphone access denied"
-- Check browser permissions
-- Try in an incognito window
-- Some browsers require HTTPS in production
-
-### "Failed to create session"
-- Verify OPENAI_API_KEY in `.env.local`
-- Ensure key has Realtime API access
-- Check API usage limits on your OpenAI account
-
-### Latency is High
-- Check your internet connection
-- Try a different browser
-- Ensure you're not running CPU-intensive tasks
-
-### Audio Not Playing
-- Check system volume
-- Verify speakers are working
-- Check browser audio permissions
+1. The browser requests an ephemeral session token from the `/api/session` Next.js API route.
+2. Using that token, the browser opens a direct WebRTC connection to the OpenAI Realtime API -- no persistent backend needed.
+3. Audio streams both ways in real time: the user's microphone input goes to OpenAI, and the AI's spoken response plays back through the browser.
+4. Transcription, latency measurement, and call state management all happen client-side.
 
 ## Deployment
 
-### Deploy to Vercel
+The project is designed for Vercel. No special configuration is needed beyond setting the environment variable.
+
+1. Push the repository to GitHub (or your preferred Git host).
+2. Import the project in [Vercel](https://vercel.com).
+3. Add `OPENAI_API_KEY` as an environment variable in the Vercel project settings.
+4. Deploy. Vercel handles the serverless API route and static assets automatically.
+
+You can also build and run manually:
 
 ```bash
-# Push to GitHub first
-git add .
-git commit -m "Initial commit"
-git push origin main
-
-# Then go to vercel.com and connect your repo
+npm run build
+npm run start
 ```
 
-**Environment Variables on Vercel:**
-1. Go to Project Settings → Environment Variables
-2. Add: `OPENAI_API_KEY=sk-your-key`
-3. Redeploy
+## Available Scripts
 
-## System Requirements
+| Command | Description |
+|---|---|
+| `npm run dev` | Start the development server |
+| `npm run build` | Create a production build |
+| `npm run start` | Run the production build locally |
+| `npm run lint` | Run ESLint |
 
-- Node.js 18+
-- npm 9+
-- Modern browser with:
-  - WebRTC support (getUserMedia)
-  - WebSocket support
-  - Web Audio API
-  - ArrayBuffer support
+## Troubleshooting
+
+**Microphone access denied** -- Check browser permissions. Some browsers require HTTPS in production. Try an incognito window if permissions are stuck.
+
+**Failed to create session** -- Verify that `OPENAI_API_KEY` is set in `.env.local` and that the key has Realtime API access. Check your OpenAI account usage limits.
+
+**High latency** -- Response time depends on network quality and OpenAI server load. Use a modern Chromium-based browser for the best WebRTC performance.
+
+**No audio playback** -- Check system volume and browser audio permissions. The browser must allow autoplay for the AI's voice to come through.
 
 ## License
 
-MIT
-
-## Support
-
-For issues or questions:
-1. Check the troubleshooting section above
-2. Review OpenAI Realtime API docs: https://platform.openai.com/docs/guides/realtime
-3. Check browser console for error messages
-
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+This project is a prototype and is not licensed for production use.

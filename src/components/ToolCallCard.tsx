@@ -1,3 +1,7 @@
+// Simulated "Book Appointment" tool call card.
+// In a real integration this would fire when the Realtime API triggers a
+// function call. Currently it just shows extracted entities and fakes a
+// pending -> confirmed transition after 3 seconds for demo purposes.
 "use client";
 
 import { useState, useEffect } from "react";
@@ -12,6 +16,7 @@ type ToolCallCardProps = {
 export function ToolCallCard({ entities }: ToolCallCardProps) {
   const [status, setStatus] = useState<"pending" | "confirmed">("pending");
 
+  // Simulate a booking confirmation after 3s (purely cosmetic)
   useEffect(() => {
     const timer = setTimeout(() => setStatus("confirmed"), 3000);
     return () => clearTimeout(timer);

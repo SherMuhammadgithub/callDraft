@@ -1,3 +1,6 @@
+// Horizontal progress indicator showing which stage of the call we're in.
+// Stages progress left to right: greeting -> understanding -> info collection -> booking -> confirmation.
+// Completed stages turn green, the current stage is highlighted in brand blue.
 "use client";
 
 import { Chip } from "@heroui/react";

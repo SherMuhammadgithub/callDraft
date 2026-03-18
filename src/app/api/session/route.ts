@@ -1,17 +1,13 @@
+// API route that mints short-lived OpenAI Realtime tokens for the browser.
+// The browser never sees our real API key — it only gets an ephemeral secret
+// that expires in ~60s, just long enough to open a WebRTC connection.
 import { NextRequest, NextResponse } from "next/server";
 
-/**
- * API Route: GET /api/session
- * Returns an ephemeral token for OpenAI Realtime API WebSocket connection
- * 
- * The token is valid for 60 seconds and expires automatically
- * Environment: OPENAI_API_KEY must be set in .env.local
- */
 export async function GET(request: NextRequest) {
   try {
     const apiKey = process.env.OPENAI_API_KEY;
 
-    // Validate API key
+    // Catch missing or placeholder keys early so we get a clear error
     if (!apiKey || apiKey === "sk-placeholder") {
       return NextResponse.json(
         {
@@ -23,10 +19,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    /**
-     * Call OpenAI API to create ephemeral token
-     * Tokens are valid for 60 seconds and tied to this server/client only
-     */
+    // Request a short-lived session token from OpenAI's Realtime API
     const response = await fetch(
       "https://api.openai.com/v1/realtime/sessions",
       {
@@ -37,7 +30,7 @@ export async function GET(request: NextRequest) {
         },
         body: JSON.stringify({
           model: "gpt-realtime-mini",
-          voice: "sage", // Sarah's voice for the agent
+          voice: "sage", // "sage" is the voice we picked for Sarah
         }),
       }
     );

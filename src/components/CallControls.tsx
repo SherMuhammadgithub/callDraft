@@ -1,3 +1,5 @@
+// Call control bar — mute, end call, transcript toggle, and debug toggle.
+// All buttons are icon-only circles styled to match the dark call screen.
 "use client";
 
 import { Button, Tooltip } from "@heroui/react";
@@ -21,6 +23,7 @@ export function CallControls({
   onToggleDebug,
   onEndCall,
 }: CallControlsProps) {
+  // Shared styles for the circular control buttons
   const controlBase =
     "w-12 h-12 rounded-full transition-all duration-200 border border-border/10";
   const controlIdle =

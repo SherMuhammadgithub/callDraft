@@ -1,3 +1,6 @@
+// Core hook for managing a voice call session with OpenAI's Realtime API.
+// Handles: connection lifecycle, transcript assembly, latency measurement,
+// mute toggle, silence/inactivity detection, and auto-disconnect.
 "use client";
 
 import { useRef, useCallback, useState, useEffect } from "react";
@@ -33,23 +36,24 @@ export interface UseCallSessionReturn {
 
 export function useCallSession(onAutoDisconnect?: () => void): UseCallSessionReturn {
   const clientRef = useRef<RealtimeWebRTCClient | null>(null);
-  const requestTimestampRef = useRef<number | null>(null);
-  const latencySamplesRef = useRef<number[]>([]);
+  const requestTimestampRef = useRef<number | null>(null); // when we last sent a request (for latency calc)
+  const latencySamplesRef = useRef<number[]>([]); // rolling set of latency samples for averaging
   const durationIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Voice & latency refs
+  // Voice & latency timing refs
   const voiceStateRef = useRef<VoiceState>("listening");
-  const sttStartRef = useRef<number | null>(null);
-  const responseCreatedAtRef = useRef<number | null>(null);
+  const sttStartRef = useRef<number | null>(null); // marks when speech stopped, to measure STT latency
+  const responseCreatedAtRef = useRef<number | null>(null); // marks response.created for total latency
 
-  // Silence detection refs
+  // Silence/inactivity detection — nudges the user if they go quiet,
+  // then auto-disconnects if they still don't respond
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const nudgeCountRef = useRef(0);
-  const userHasSpokenRef = useRef(false);
-  const speechCooldownRef = useRef(false);
-  const greetingTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const endCallRef = useRef<() => void>(() => {});
+  const nudgeCountRef = useRef(0); // how many "are you there?" nudges we've sent
+  const userHasSpokenRef = useRef(false); // has the user said anything at all?
+  const speechCooldownRef = useRef(false); // ignore speech_started briefly after agent stops (echo suppression)
+  const greetingTimerRef = useRef<NodeJS.Timeout | null>(null); // fires if user never speaks after greeting
+  const endCallRef = useRef<() => void>(() => {}); // stable ref so timers can call endCall without stale closure
   const onAutoDisconnectRef = useRef(onAutoDisconnect);
 
   // Existing state
@@ -70,10 +74,12 @@ export function useCallSession(onAutoDisconnect?: () => void): UseCallSessionRet
 
   // ─── Event Handlers ─────────────────────────────────────────────────────
 
+  // Wire up all the Realtime API event handlers. Called once per startCall().
   const setupEventHandlers = useCallback(() => {
     if (!clientRef.current) return;
 
-    // Tracks in-progress agent response text by responseId
+    // Accumulates streaming agent text keyed by responseId so we can
+    // update the transcript entry in-place as deltas arrive
     let agentTranscriptBuffer: Record<string, string> = {};
 
     // ── User transcript (Whisper STT result) ────────────────────────────
@@ -151,12 +157,16 @@ export function useCallSession(onAutoDisconnect?: () => void): UseCallSessionRet
     });
 
     // ── Speech started (placeholder + interruption cleanup + voice state)
+    // This fires when the VAD detects the user starting to talk. We insert
+    // a "..." placeholder in the transcript that gets replaced once Whisper
+    // finishes transcription.
 
     clientRef.current.on("input_audio_buffer.speech_started", (event: any) => {
       const itemId = event.item_id as string | undefined;
       const agentWasSpeaking = voiceStateRef.current === "speaking";
 
-      // Ignore echo: skip if agent was speaking or in post-speech cooldown
+      // Ignore echo: the agent's own audio can trigger the VAD, so skip
+      // if Sarah was speaking or we're in the post-speech cooldown window
       if (agentWasSpeaking || speechCooldownRef.current) return;
 
       // Clear all timers — user is talking
@@ -210,10 +220,10 @@ export function useCallSession(onAutoDisconnect?: () => void): UseCallSessionRet
       setVoiceState(voiceStateRef.current);
     });
 
-    // ── Speech stopped ──────────────────────────────────────────────────
+    // ── Speech stopped — start the STT latency clock
 
     clientRef.current.on("input_audio_buffer.speech_stopped", () => {
-      sttStartRef.current = Date.now();
+      sttStartRef.current = Date.now(); // measure how long Whisper takes
       voiceStateRef.current = "listening";
       setVoiceState("listening");
     });
@@ -279,17 +289,21 @@ export function useCallSession(onAutoDisconnect?: () => void): UseCallSessionRet
     });
 
     // ── Latency tracking ────────────────────────────────────────────────
+    // We measure two things: time-to-first-token (LLM latency) and total
+    // response duration. Both start from response.created.
 
     clientRef.current.on("response.created", () => {
       requestTimestampRef.current = Date.now();
       responseCreatedAtRef.current = Date.now();
     });
 
+    // Only the FIRST delta per response counts as time-to-first-token
     clientRef.current.on("response.audio_transcript.delta", () => {
       if (requestTimestampRef.current) {
         const sample = Date.now() - requestTimestampRef.current;
-        requestTimestampRef.current = null;
+        requestTimestampRef.current = null; // null it so subsequent deltas are ignored
         latencySamplesRef.current.push(sample);
+        // Running average across all responses in this call
         const avg = Math.round(
           latencySamplesRef.current.reduce((a, b) => a + b, 0) /
             latencySamplesRef.current.length,
@@ -311,15 +325,17 @@ export function useCallSession(onAutoDisconnect?: () => void): UseCallSessionRet
       voiceStateRef.current = "listening";
       setVoiceState("listening");
 
-      // Cooldown: ignore speech_started for 2s after agent finishes
-      // (mic echo from agent audio can trigger false speech_started)
+      // 2s cooldown after agent finishes speaking — prevents the agent's
+      // own audio (played through speakers) from triggering a false
+      // speech_started event via the microphone
       speechCooldownRef.current = true;
       setTimeout(() => {
         speechCooldownRef.current = false;
       }, 2000);
 
-      // Greeting timeout — if user has never spoken, nudge after 15s
-      // then auto-disconnect 30s after that
+      // Greeting timeout — if the user hasn't said anything after Sarah's
+      // greeting, gently prompt them after 15s. If still silent, we'll
+      // auto-disconnect 30s later (handled by the inactivity timer below).
       if (!userHasSpokenRef.current && !greetingTimerRef.current && nudgeCountRef.current < 1) {
         greetingTimerRef.current = setTimeout(() => {
           if (!userHasSpokenRef.current && clientRef.current && nudgeCountRef.current < 1) {
@@ -337,7 +353,8 @@ export function useCallSession(onAutoDisconnect?: () => void): UseCallSessionRet
         }, 15000);
       }
 
-      // Start silence timer — nudge if user stays quiet for 12s
+      // Mid-conversation silence timer — if the user was talking earlier
+      // but has gone quiet for 12s, ask if they're still there
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       if (userHasSpokenRef.current && nudgeCountRef.current < 1) {
         silenceTimerRef.current = setTimeout(() => {
@@ -360,7 +377,9 @@ export function useCallSession(onAutoDisconnect?: () => void): UseCallSessionRet
         }, 12000);
       }
 
-      // Start inactivity auto-disconnect — 30s after nudge was already sent
+      // Final inactivity auto-disconnect — 30s after a nudge was already
+      // sent and the user still hasn't responded. Sarah says goodbye, then
+      // we hang up after 5s to let the audio finish playing.
       if (nudgeCountRef.current >= 1 && !inactivityTimerRef.current) {
         inactivityTimerRef.current = setTimeout(() => {
           if (clientRef.current) {
@@ -410,8 +429,10 @@ export function useCallSession(onAutoDisconnect?: () => void): UseCallSessionRet
 
   // ─── Start Call ─────────────────────────────────────────────────────────
 
+  // Starts a new call: resets all state, fetches ephemeral token, opens WebRTC
   const startCall = useCallback(async () => {
     try {
+      // Reset everything from any previous call
       setIsConnecting(true);
       setTranscript([]);
       setLatency(0);
@@ -436,6 +457,7 @@ export function useCallSession(onAutoDisconnect?: () => void): UseCallSessionRet
         greetingTimerRef.current = null;
       }
 
+      // Step 1: get an ephemeral token from our API route
       const tokenResponse = await fetch("/api/session");
       if (!tokenResponse.ok) {
         const errorData = await tokenResponse.json();
@@ -444,9 +466,12 @@ export function useCallSession(onAutoDisconnect?: () => void): UseCallSessionRet
       const { clientSecret } = await tokenResponse.json();
       const token = clientSecret.value;
 
+      // Step 2: create the WebRTC client and wire up event handlers
       clientRef.current = new RealtimeWebRTCClient();
       setupEventHandlers();
 
+      // Once the session config is accepted, trigger Sarah's greeting.
+      // Small delay lets the audio pipeline stabilize before she speaks.
       let greetingTriggered = false;
       clientRef.current.on("session.updated", () => {
         if (greetingTriggered) return;
@@ -471,10 +496,12 @@ export function useCallSession(onAutoDisconnect?: () => void): UseCallSessionRet
         });
       });
 
+      // Step 3: open the WebRTC connection (SDP handshake + mic access)
       await clientRef.current.connect(token);
       setIsConnected(true);
       setIsConnecting(false);
 
+      // Start a simple wall-clock timer for call duration display
       let seconds = 0;
       durationIntervalRef.current = setInterval(() => {
         seconds++;
@@ -532,7 +559,7 @@ export function useCallSession(onAutoDisconnect?: () => void): UseCallSessionRet
     setTranscript((prev) => prev.filter((e) => e.text !== "..."));
   }, []);
 
-  // Keep refs in sync so timers can call without stale closure
+  // Sync refs on every render so timer callbacks always have the latest values
   endCallRef.current = endCall;
   onAutoDisconnectRef.current = onAutoDisconnect;
 
