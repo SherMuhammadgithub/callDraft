@@ -28,7 +28,7 @@ type CallActiveViewProps = {
   onEndCall: () => void;
 };
 
-// ─── Waveform Animation ─────────────────────────────────────────────────────
+// / ─── Waveform Animation ─────────────────────────────────────────────────────
 
 function WaveformBars() {
   const bars = [3, 5, 7, 4, 8, 6, 3, 5, 7, 4, 8, 6, 3, 5, 7];
