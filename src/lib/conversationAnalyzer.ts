@@ -133,6 +133,13 @@ const ADDRESS_RE =
 const ISSUE_RE =
   /(?:(?:my|the|our)\s+)?(?:ac|air\s*condition(?:er|ing)?|heat(?:er|ing)?|furnace|duct|hvac|unit)\s+(?:is\s+)?(?:not\s+working|broken|leaking|making\s+noise|won't\s+(?:turn|start)|stopped)|(?:need|want)\s+(?:a\s+)?(?:repair|maintenance|installation|duct\s+cleaning|service)/i;
 
+// Returns the LAST match of a regex in a string (most recent info wins)
+function lastMatch(text: string, re: RegExp, group = 0): string | null {
+  const globalRe = new RegExp(re.source, re.flags.includes("g") ? re.flags : re.flags + "g");
+  const matches = [...text.matchAll(globalRe)];
+  return matches.length > 0 ? matches[matches.length - 1][group] : null;
+}
+
 export function extractEntities(
   transcript: TranscriptEntry[],
 ): ExtractedEntities {
@@ -143,15 +150,13 @@ export function extractEntities(
   const allText = transcript.map((e) => e.text).join(" ");
 
   return {
-    name: (userText.match(NAME_RE) || allText.match(NAME_RE))?.[1] || null,
-    phone:
-      (userText.match(PHONE_RE) || allText.match(PHONE_RE))?.[0] || null,
+    name: lastMatch(userText, NAME_RE, 1) || lastMatch(allText, NAME_RE, 1),
+    phone: lastMatch(userText, PHONE_RE) || lastMatch(allText, PHONE_RE),
     address:
-      (userText.match(ADDRESS_RE) || allText.match(ADDRESS_RE))?.[1]?.trim() ||
+      (lastMatch(userText, ADDRESS_RE, 1) || lastMatch(allText, ADDRESS_RE, 1))?.trim() ||
       null,
-    time: allText.match(TIME_RE)?.[0] || null,
-    issue:
-      (userText.match(ISSUE_RE) || allText.match(ISSUE_RE))?.[0] || null,
+    time: lastMatch(allText, TIME_RE),
+    issue: lastMatch(userText, ISSUE_RE) || lastMatch(allText, ISSUE_RE),
   };
 }
 

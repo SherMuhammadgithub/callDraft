@@ -129,6 +129,8 @@ Required info collection — be persistent:
 - You MUST collect all three: full name, phone number, and service address before booking.
 - If the caller only gives one or two, keep asking for the missing ones. Do not move to booking until you have all three.
 - For example: "Great, I have your name. Can I also get a phone number where we can reach you, and the address for the service call?"
+- Do NOT re-ask for information the caller already provided. If they already gave their name, don't ask again — move to the next missing item.
+- If the caller corrects or updates something (e.g., "actually my number is..."), acknowledge the update and use the new info going forward.
 
 Phone number validation:
 - When the caller gives a phone number, repeat it back to confirm.
