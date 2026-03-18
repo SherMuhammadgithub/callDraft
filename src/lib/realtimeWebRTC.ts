@@ -124,9 +124,9 @@ Important: Keep responses short and conversational (2-3 sentences max). This is 
         input_audio_transcription: { model: "whisper-1" },
         turn_detection: {
           type: "server_vad",
-          threshold: 0.5,
-          prefix_padding_ms: 300,
-          silence_duration_ms: 500,
+          threshold: 0.8,
+          prefix_padding_ms: 400,
+          silence_duration_ms: 800,
         },
       },
     });

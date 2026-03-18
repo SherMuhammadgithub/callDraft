@@ -60,6 +60,8 @@ export default function Home() {
           isMuted={callSession.isMuted}
           callDuration={callSession.callDuration}
           latency={callSession.latency}
+          voiceState={callSession.voiceState}
+          latencyBreakdown={callSession.latencyBreakdown}
           onToggleMute={callSession.toggleMute}
           onEndCall={handleEndCall}
         />

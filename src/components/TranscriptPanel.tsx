@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef, useEffect } from "react";
 import { Button, ScrollShadow, Divider } from "@heroui/react";
 import { motion } from "framer-motion";
 import { TranscriptBubble, type TranscriptEntry } from "./TranscriptBubble";
@@ -10,6 +11,15 @@ type TranscriptPanelProps = {
 };
 
 export function TranscriptPanel({ transcript, onClose }: TranscriptPanelProps) {
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [transcript]);
+
   return (
     <div className="flex flex-col h-full bg-white overflow-hidden">
       {/* Header */}
@@ -86,6 +96,7 @@ export function TranscriptPanel({ transcript, onClose }: TranscriptPanelProps) {
             {transcript.map((entry) => (
               <TranscriptBubble key={entry.id} entry={entry} />
             ))}
+            <div ref={bottomRef} />
           </div>
         )}
       </ScrollShadow>

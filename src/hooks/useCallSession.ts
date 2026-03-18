@@ -5,6 +5,16 @@ import { addToast } from "@heroui/react";
 import { RealtimeWebRTCClient } from "@/lib/realtimeWebRTC";
 import type { TranscriptEntry } from "@/components/TranscriptBubble";
 
+// ─── Types ──────────────────────────────────────────────────────────────────
+
+export type VoiceState = "listening" | "speaking" | "interrupted";
+
+export type LatencyBreakdown = {
+  stt: number;
+  llm: number;
+  total: number;
+};
+
 export interface UseCallSessionReturn {
   isConnecting: boolean;
   isConnected: boolean;
@@ -15,17 +25,24 @@ export interface UseCallSessionReturn {
   endCall: () => void;
   toggleMute: () => void;
   isMuted: boolean;
+  voiceState: VoiceState;
+  latencyBreakdown: LatencyBreakdown;
 }
+
+// ─── Hook ───────────────────────────────────────────────────────────────────
 
 export function useCallSession(): UseCallSessionReturn {
   const clientRef = useRef<RealtimeWebRTCClient | null>(null);
   const requestTimestampRef = useRef<number | null>(null);
   const latencySamplesRef = useRef<number[]>([]);
   const durationIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const transcriptSequenceRef = useRef(0);
-  // Track which agent responses are "in progress" (not yet done)
-  const pendingAgentResponsesRef = useRef<Set<string>>(new Set());
 
+  // Voice & latency refs
+  const voiceStateRef = useRef<VoiceState>("listening");
+  const sttStartRef = useRef<number | null>(null);
+  const responseCreatedAtRef = useRef<number | null>(null);
+
+  // Existing state
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -33,35 +50,65 @@ export function useCallSession(): UseCallSessionReturn {
   const [latency, setLatency] = useState(0);
   const [callDuration, setCallDuration] = useState("0:00");
 
+  // New state
+  const [voiceState, setVoiceState] = useState<VoiceState>("listening");
+  const [latencyBreakdown, setLatencyBreakdown] = useState<LatencyBreakdown>({
+    stt: 0,
+    llm: 0,
+    total: 0,
+  });
+
+  // ─── Event Handlers ─────────────────────────────────────────────────────
+
   const setupEventHandlers = useCallback(() => {
     if (!clientRef.current) return;
 
+    // Tracks in-progress agent response text by responseId
     let agentTranscriptBuffer: Record<string, string> = {};
-    // Store agent entries that arrived before user transcript
-    // key = responseId, value = the entry waiting to be sequenced
-    let pendingAgentEntries: Record<
-      string,
-      Omit<TranscriptEntry, "sequence">
-    > = {};
 
-    // ✅ User transcript handler
-    // When user transcript arrives, insert it THEN flush any pending agent entries after it
+    // ── User transcript (Whisper STT result) ────────────────────────────
+    // Finds the placeholder inserted by speech_started and replaces its
+    // text. Falls back to appending a new entry if no placeholder exists.
+
     clientRef.current.on(
       "conversation.item.input_audio_transcription.completed",
       (event: any) => {
         const userText = event.transcript;
-        if (!userText?.trim()) return;
+        const itemId = event.item_id as string | undefined;
 
-        const userSequence = transcriptSequenceRef.current++;
+        // Empty transcription — remove placeholder if one exists
+        if (!userText?.trim()) {
+          if (itemId) {
+            setTranscript((prev) => prev.filter((e) => e.id !== itemId));
+          }
+          return;
+        }
+
+        // STT latency
+        if (sttStartRef.current) {
+          const sttLatency = Date.now() - sttStartRef.current;
+          sttStartRef.current = null;
+          setLatencyBreakdown((prev) => ({ ...prev, stt: sttLatency }));
+        }
 
         setTranscript((prev) => {
-          let updated = [
+          // Try to find and update the placeholder
+          if (itemId) {
+            const idx = prev.findIndex((e) => e.id === itemId);
+            if (idx !== -1) {
+              const updated = [...prev];
+              updated[idx] = { ...updated[idx], text: userText };
+              return updated;
+            }
+          }
+
+          // Fallback — no placeholder found, append new entry
+          return [
             ...prev,
             {
-              id: `user-${Date.now()}`,
+              id: itemId || `user-${Date.now()}`,
               role: "user" as const,
               text: userText,
-              sequence: userSequence,
               timestamp: new Date().toLocaleTimeString("en-US", {
                 hour: "2-digit",
                 minute: "2-digit",
@@ -70,31 +117,12 @@ export function useCallSession(): UseCallSessionReturn {
               }),
             },
           ];
-
-          // Now flush any pending agent entries that were waiting
-          const pendingIds = Object.keys(pendingAgentEntries);
-          for (const responseId of pendingIds) {
-            const entry = pendingAgentEntries[responseId];
-            // Check if this entry already exists in transcript
-            const exists = updated.find((e) => e.id === entry.id);
-            if (!exists) {
-              updated = [
-                ...updated,
-                {
-                  ...entry,
-                  sequence: transcriptSequenceRef.current++,
-                },
-              ];
-            }
-            delete pendingAgentEntries[responseId];
-          }
-
-          return updated;
         });
       },
     );
 
-    // Clean up interrupted responses
+    // ── Interrupted response cleanup ────────────────────────────────────
+
     clientRef.current.on("response.cancelled", (event: any) => {
       const responseId = event.response_id;
       if (responseId) {
@@ -102,22 +130,62 @@ export function useCallSession(): UseCallSessionReturn {
           prev.filter((e) => e.id !== `agent-${responseId}`),
         );
         delete agentTranscriptBuffer[responseId];
-        delete pendingAgentEntries[responseId];
-        pendingAgentResponsesRef.current.delete(responseId);
       }
     });
 
-    // Clean up on interruption
-    clientRef.current.on("input_audio_buffer.speech_started", () => {
-      setTranscript((prev) =>
-        prev.filter((e) => {
+    // ── Speech started (placeholder + interruption cleanup + voice state)
+
+    clientRef.current.on("input_audio_buffer.speech_started", (event: any) => {
+      const itemId = event.item_id as string | undefined;
+      const agentWasSpeaking = voiceStateRef.current === "speaking";
+
+      setTranscript((prev) => {
+        // 1. Remove agent entries still being streamed (interruption)
+        let updated = prev.filter((e) => {
           if (e.role !== "agent") return true;
           return !agentTranscriptBuffer[e.id.replace("agent-", "")];
-        }),
-      );
+        });
+
+        // 2. Insert placeholder ONLY when agent was NOT speaking.
+        //    During agent speech, speech_started is almost always echo/
+        //    feedback — not real user input. If it IS a real interruption,
+        //    transcription.completed fallback will still add the entry.
+        if (itemId && !agentWasSpeaking && !updated.find((e) => e.id === itemId)) {
+          updated = [
+            ...updated,
+            {
+              id: itemId,
+              role: "user" as const,
+              text: "...",
+              timestamp: new Date().toLocaleTimeString("en-US", {
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+                hour12: false,
+              }),
+            },
+          ];
+        }
+
+        return updated;
+      });
+
+      voiceStateRef.current = agentWasSpeaking ? "interrupted" : "listening";
+      setVoiceState(voiceStateRef.current);
     });
 
-    // Agent transcript streaming
+    // ── Speech stopped ──────────────────────────────────────────────────
+
+    clientRef.current.on("input_audio_buffer.speech_stopped", () => {
+      sttStartRef.current = Date.now();
+      voiceStateRef.current = "listening";
+      setVoiceState("listening");
+    });
+
+    // ── Agent transcript streaming ──────────────────────────────────────
+    // Add agent entry to transcript IMMEDIATELY on first delta.
+    // No pending queue — entries appear as they stream in.
+
     clientRef.current.on("response.audio_transcript.delta", (event: any) => {
       const responseId = event.response_id;
       const delta = event.delta;
@@ -127,7 +195,8 @@ export function useCallSession(): UseCallSessionReturn {
 
       if (isNew) {
         agentTranscriptBuffer[responseId] = "";
-        pendingAgentResponsesRef.current.add(responseId);
+        voiceStateRef.current = "speaking";
+        setVoiceState("speaking");
       }
 
       agentTranscriptBuffer[responseId] += delta;
@@ -138,7 +207,7 @@ export function useCallSession(): UseCallSessionReturn {
         );
 
         if (existingIndex !== -1) {
-          // Entry already in transcript — just update text
+          // Already in transcript — update text
           const updated = [...prev];
           updated[existingIndex] = {
             ...updated[existingIndex],
@@ -147,14 +216,12 @@ export function useCallSession(): UseCallSessionReturn {
           return updated;
         }
 
-        // Entry not yet in transcript
-        // Check if there are pending user transcripts (Whisper still running)
-        // We detect this by checking if any recent agent response is "in progress"
-        // Store as pending so user transcript handler can flush it in correct order
-        if (isNew) {
-          pendingAgentEntries[responseId] = {
+        // First delta — add directly to transcript
+        return [
+          ...prev,
+          {
             id: `agent-${responseId}`,
-            role: "agent",
+            role: "agent" as const,
             text: agentTranscriptBuffer[responseId],
             timestamp: new Date().toLocaleTimeString("en-US", {
               hour: "2-digit",
@@ -162,71 +229,55 @@ export function useCallSession(): UseCallSessionReturn {
               second: "2-digit",
               hour12: false,
             }),
-          };
-        } else {
-          // Update the pending entry text too
-          if (pendingAgentEntries[responseId]) {
-            pendingAgentEntries[responseId] = {
-              ...pendingAgentEntries[responseId],
-              text: agentTranscriptBuffer[responseId],
-            };
-          }
-        }
-
-        return prev; // Don't add yet — wait for user transcript to flush
+          },
+        ];
       });
     });
 
-    // When agent response audio is done — if still pending, flush it now
-    // (handles case where user didn't speak before Sarah, e.g. opening greeting)
+    // ── Agent transcript done — just clean up buffer ────────────────────
+
     clientRef.current.on("response.audio_transcript.done", (event: any) => {
       const responseId = event.response_id;
       if (!responseId) return;
-
-      pendingAgentResponsesRef.current.delete(responseId);
-
-      // If still in pendingAgentEntries, it means no user transcript arrived
-      // to flush it — add it directly now (e.g. Sarah's opening greeting)
-      if (pendingAgentEntries[responseId]) {
-        const entry = pendingAgentEntries[responseId];
-        delete pendingAgentEntries[responseId];
-
-        setTranscript((prev) => {
-          const exists = prev.find((e) => e.id === entry.id);
-          if (exists) return prev;
-          return [
-            ...prev,
-            {
-              ...entry,
-              text: agentTranscriptBuffer[responseId] ?? entry.text,
-              sequence: transcriptSequenceRef.current++,
-            },
-          ];
-        });
-      }
-
       delete agentTranscriptBuffer[responseId];
     });
 
-    // Latency tracking — measure time-to-first-audio (perceived latency)
+    // ── Latency tracking ────────────────────────────────────────────────
+
     clientRef.current.on("response.created", () => {
       requestTimestampRef.current = Date.now();
+      responseCreatedAtRef.current = Date.now();
     });
 
     clientRef.current.on("response.audio_transcript.delta", () => {
       if (requestTimestampRef.current) {
         const sample = Date.now() - requestTimestampRef.current;
-        requestTimestampRef.current = null; // only measure first delta
+        requestTimestampRef.current = null;
         latencySamplesRef.current.push(sample);
         const avg = Math.round(
           latencySamplesRef.current.reduce((a, b) => a + b, 0) /
             latencySamplesRef.current.length,
         );
         setLatency(avg);
+        setLatencyBreakdown((prev) => ({ ...prev, llm: sample }));
       }
     });
 
-    // Errors
+    // ── Response done (total latency + voice state) ─────────────────────
+
+    clientRef.current.on("response.done", () => {
+      if (responseCreatedAtRef.current) {
+        const total = Date.now() - responseCreatedAtRef.current;
+        responseCreatedAtRef.current = null;
+        setLatencyBreakdown((prev) => ({ ...prev, total }));
+      }
+
+      voiceStateRef.current = "listening";
+      setVoiceState("listening");
+    });
+
+    // ── Errors ──────────────────────────────────────────────────────────
+
     clientRef.current.on("error", (event: any) => {
       console.error("Realtime API error:", event);
       addToast({
@@ -241,15 +292,19 @@ export function useCallSession(): UseCallSessionReturn {
     });
   }, []);
 
+  // ─── Start Call ─────────────────────────────────────────────────────────
+
   const startCall = useCallback(async () => {
     try {
       setIsConnecting(true);
       setTranscript([]);
       setLatency(0);
       setCallDuration("0:00");
-      transcriptSequenceRef.current = 0;
-      pendingAgentResponsesRef.current = new Set();
+      setVoiceState("listening");
+      setLatencyBreakdown({ stt: 0, llm: 0, total: 0 });
       latencySamplesRef.current = [];
+      sttStartRef.current = null;
+      responseCreatedAtRef.current = null;
 
       const tokenResponse = await fetch("/api/session");
       if (!tokenResponse.ok) {
@@ -313,6 +368,8 @@ export function useCallSession(): UseCallSessionReturn {
     }
   }, [setupEventHandlers]);
 
+  // ─── End Call ───────────────────────────────────────────────────────────
+
   const endCall = useCallback(() => {
     clientRef.current?.disconnect();
     clientRef.current = null;
@@ -325,7 +382,12 @@ export function useCallSession(): UseCallSessionReturn {
     requestTimestampRef.current = null;
     setIsConnected(false);
     setIsMuted(false);
+    setVoiceState("listening");
+    // Remove unresolved "Listening..." placeholders
+    setTranscript((prev) => prev.filter((e) => e.text !== "..."));
   }, []);
+
+  // ─── Toggle Mute ───────────────────────────────────────────────────────
 
   const toggleMute = useCallback(() => {
     if (!clientRef.current) return;
@@ -335,6 +397,8 @@ export function useCallSession(): UseCallSessionReturn {
       setIsMuted(!track.enabled);
     }
   }, []);
+
+  // ─── Cleanup ──────────────────────────────────────────────────────────
 
   useEffect(() => {
     return () => {
@@ -355,5 +419,7 @@ export function useCallSession(): UseCallSessionReturn {
     endCall,
     toggleMute,
     isMuted,
+    voiceState,
+    latencyBreakdown,
   };
 }
